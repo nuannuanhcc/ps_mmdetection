@@ -1,4 +1,4 @@
-from ..utils import Registry, build_from_cfg
+from mmcv.utils import Registry, build_from_cfg
 
 RUNNERS = Registry('runner')
 

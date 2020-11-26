@@ -13,9 +13,9 @@ from torch.optim import Optimizer
 from torch.utils import model_zoo
 
 import mmcv
-from ..fileio import load as load_file
-from ..parallel import is_module_wrapper
-from ..utils import mkdir_or_exist
+from mmcv.fileio import load as load_file
+from mmcv.parallel import is_module_wrapper
+from mmcv.utils import mkdir_or_exist
 from .dist_utils import get_dist_info
 
 ENV_MMCV_HOME = 'MMCV_HOME'

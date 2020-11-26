@@ -1,4 +1,4 @@
-from ...parallel import is_module_wrapper
+from mmcv.parallel import is_module_wrapper
 from ..hooks.hook import HOOKS, Hook
 
 

@@ -8,7 +8,7 @@ import torch
 from torch.optim import Optimizer
 
 import mmcv
-from ..parallel import is_module_wrapper
+from mmcv.parallel import is_module_wrapper
 from .checkpoint import load_checkpoint
 from .dist_utils import get_dist_info
 from .hooks import HOOKS, Hook, IterTimerHook
