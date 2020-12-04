@@ -26,7 +26,7 @@ def parse_args():
         '--resume-from', help='the checkpoint file to resume from')
     parser.add_argument(
         '--no-validate',
-        action='store_true',
+        action='store_false',
         help='whether not to evaluate the checkpoint during training')
     group_gpus = parser.add_mutually_exclusive_group()
     group_gpus.add_argument(
@@ -173,6 +173,50 @@ def main():
         timestamp=timestamp,
         meta=meta)
 
+    do_test = True
+    if do_test:
+        print('\nDoing inference')
+        from mmdet.datasets import build_dataloader
+        from mmcv.parallel import MMDataParallel, MMDistributedDataParallel
+        from mmcv.runner import get_dist_info, load_checkpoint
+        from mmdet.apis.test import single_gpu_test, multi_gpu_test
+
+        cfg.model.pretrained = None
+        cfg.data.test.test_mode = True
+        # build the dataloader
+        samples_per_gpu = cfg.data.test.pop('samples_per_gpu', 1)
+        dataset = [build_dataset(cfg.data.test)]
+        if cfg.data.test.with_reid:
+            dataset.append(build_dataset(cfg.data.query))
+        data_loader = [
+            build_dataloader(
+                ds,
+                samples_per_gpu=samples_per_gpu,
+                workers_per_gpu=cfg.data.workers_per_gpu,
+                dist=distributed,
+                shuffle=False)
+            for ds in dataset]
+
+        for i in range(cfg.total_epochs, 0, -1):
+            model = build_detector(cfg.model, train_cfg=None, test_cfg=cfg.test_cfg)
+            ckpt = os.path.join(cfg.work_dir, 'epoch_' + str(i) + '.pth')
+            load_checkpoint(model, ckpt, map_location='cpu')
+
+            if not distributed:
+                model = MMDataParallel(model, device_ids=[0])
+                outputs = [single_gpu_test(model, dl) for dl in data_loader]
+            else:
+                model = MMDistributedDataParallel(
+                    model.cuda(),
+                    device_ids=[torch.cuda.current_device()],
+                    broadcast_buffers=False)
+                outputs = [multi_gpu_test(model, dl) for dl in data_loader]
+
+            print('\nStarting evaluate {}'.format(ckpt))
+            result = dataset[0].evaluate(outputs, dataset)
+            with open(os.path.join(cfg.work_dir, "eva_result.txt"), "a") as fid:
+                fid.write(ckpt + '\n')
+                fid.write(result+'\n')
 
 if __name__ == '__main__':
     main()

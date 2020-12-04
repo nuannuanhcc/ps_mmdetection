@@ -77,6 +77,9 @@ class CocoDataset(CustomDataset):
         img_id = self.data_infos[idx]['id']
         ann_ids = self.coco.get_ann_ids(img_ids=[img_id])
         ann_info = self.coco.load_anns(ann_ids)
+        if self.is_query:
+            index = [ann['pid'] == idx for ann in ann_info]
+            ann_info = np.array(ann_info)[index].tolist()
         return self._parse_ann_info(self.data_infos[idx], ann_info)
 
     def get_cat_ids(self, idx):
@@ -151,7 +154,10 @@ class CocoDataset(CustomDataset):
                 gt_bboxes_ignore.append(bbox)
             else:
                 gt_bboxes.append(bbox)
-                gt_labels.append(self.cat2label[ann['category_id']])
+                if self.with_reid:
+                    gt_labels.append([self.cat2label[ann['category_id']], ann['pid']])
+                else:
+                    gt_labels.append(self.cat2label[ann['category_id']])
                 gt_masks_ann.append(ann.get('segmentation', None))
 
         if gt_bboxes:
