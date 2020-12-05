@@ -153,7 +153,162 @@ class CIRCLELossComputation(nn.Module):
         return pair_loss
 
 
+class OIMLossComputation_UN(nn.Module):
+    def __init__(self, cfg):
+        super(OIMLossComputation_UN, self).__init__()
+        self.cfg = cfg
+        if self.cfg.dataset_type == 'SysuDataset':
+            self.num_pid = 15080  # 15080/55260
+        elif self.cfg.dataset_type == 'PrwDataset':
+            self.num_pid = 483
+        else:
+            raise KeyError(cfg.DATASETS.TRAIN)
+
+        self.m = 0.0
+        self.out_channels = 2048
+
+        self.register_buffer('lut', torch.zeros(self.num_pid, self.out_channels).cuda())
+
+    def forward(self, features, gt_labels):
+
+        pids = torch.cat([i[:, -1] for i in gt_labels])
+        id_labeled = pids[pids > -1]
+        feat_labeled = features[pids > -1]
+
+        if not id_labeled.numel():
+            loss = F.cross_entropy(features.mm(self.lut.t()), pids, ignore_index=-1)
+            return loss
+
+        sim_all = HM.apply(feat_labeled, id_labeled, self.lut, self.m)
+
+        scalar = 10
+        loss = F.cross_entropy(sim_all * scalar, id_labeled)
+        return loss
+
+
+class CIRCLELossComputation_UN(nn.Module):
+    def __init__(self, cfg):
+        super(CIRCLELossComputation_UN, self).__init__()
+        self.cfg = cfg
+
+        if self.cfg.dataset_type == 'SysuDataset':
+            num_labeled = 15080  # 15080/55260
+        elif self.cfg.dataset_type == 'Prwdataset_type':
+            num_labeled = 8192
+        else:
+            raise KeyError(cfg.DATASETS.TRAIN)
+
+        self.out_channels = 2048
+
+        self.register_buffer('pointer', torch.zeros(1, dtype=torch.int).cuda())
+        self.register_buffer('id_inx', -torch.ones(num_labeled, dtype=torch.long).cuda())
+        self.register_buffer('lut', torch.zeros(num_labeled, self.out_channels).cuda())
+
+    def forward(self, features, gt_labels):
+
+        pids = torch.cat([i[:, -1] for i in gt_labels])
+        id_labeled = pids[pids > -1]
+        feat_labeled = features[pids > -1]
+        feat_unlabeled = features[pids == -1]
+
+        if not id_labeled.numel():
+            loss = F.cross_entropy(features.mm(self.lut.t()), pids, ignore_index=-1)
+            return loss
+
+        self.lut, _ = update_queue(self.lut, self.pointer, feat_labeled)
+        self.id_inx, self.pointer = update_queue(self.id_inx, self.pointer, id_labeled)
+
+        lut_sim = torch.mm(feat_labeled, self.lut.t())
+        positive_mask = id_labeled.view(-1, 1) == self.id_inx.view(1, -1)
+        sim_ap = lut_sim.masked_fill(~positive_mask, float("inf"))
+        sim_an = lut_sim.masked_fill(positive_mask, float("-inf"))
+
+        pair_loss = circle_loss(sim_ap, sim_an)
+        return pair_loss
+
+
+class HM(Function):
+    @staticmethod
+    def forward(ctx, inputs, indexes, features, momentum):
+        ctx.features = features
+        ctx.momentum = momentum
+        ctx.save_for_backward(inputs, indexes)
+        outputs = inputs.mm(ctx.features.t())
+        return outputs
+
+    @staticmethod
+    def backward(ctx, grad_outputs):
+        inputs, indexes = ctx.saved_tensors
+        grad_inputs = None
+        if ctx.needs_input_grad[0]:
+            grad_inputs = grad_outputs.mm(ctx.features)
+        # momentum update
+        for x, y in zip(inputs, indexes):
+            ctx.features[y] = ctx.momentum * ctx.features[y] + (1. - ctx.momentum) * x
+            ctx.features[y] /= ctx.features[y].norm()
+        return grad_inputs, None, None, None
+
+class HybridMemory(nn.Module):
+    def __init__(self, cfg, use_circle_loss=False):
+        super(HybridMemory, self).__init__()
+        self.cfg = cfg
+        self.use_circle_loss = use_circle_loss
+
+        if self.cfg.dataset_type == 'SysuDataset':
+            num_labeled = 15080  # 15080/55260
+            num_unlabeled = 8192
+        elif self.cfg.dataset_type == 'PrwDataset':
+            num_labeled = 8192
+            num_unlabeled = 8192
+        else:
+            raise KeyError(cfg.DATASETS.TRAIN)
+
+        self.m = 0.2
+        self.temp = 0.05
+        self.out_channels = 2048
+
+        self.register_buffer('labels', torch.arange(num_labeled, dtype=torch.long).cuda())
+        self.register_buffer('features', torch.zeros(num_labeled, self.out_channels).cuda())
+
+    def forward(self, features, gt_labels):
+        pids = torch.cat([i[:, -1] for i in gt_labels])
+        id_labeled = pids[pids > -1]
+        feat_labeled = features[pids > -1]
+
+        if not id_labeled.numel():
+            loss = F.cross_entropy(features.mm(self.features.t()), pids, ignore_index=-1)
+            return loss
+
+        sim_all = HM.apply(feat_labeled, id_labeled, self.features, self.m)
+        targets = self.labels[id_labeled]
+
+        if self.use_circle_loss:
+            positive_mask = targets.view(-1, 1) == self.labels.view(1, -1)
+            sim_ap = sim_all.masked_fill(~positive_mask, float("inf"))
+            sim_an = sim_all.masked_fill(positive_mask, float("-inf"))
+            loss = circle_loss(sim_ap, sim_an)
+            return loss
+
+        sim_all /= self.temp
+        N = sim_all.shape[0]
+
+        labels = self.labels.clone()
+
+        sim = torch.zeros(labels.max()+1, N).float().cuda()
+        sim.index_add_(0, labels, sim_all.t().contiguous())
+        nums = torch.zeros(labels.max()+1, 1).float().cuda()
+        nums.index_add_(0, labels, torch.ones(labels.shape[0], 1).float().cuda())
+
+        sim = sim / nums.expand_as(sim)
+        loss = F.cross_entropy(sim.t(), targets)
+
+        return loss
+
+
 def make_reid_loss_evaluator(cfg):
-    loss_evaluator = OIMLossComputation(cfg)
+    # loss_evaluator = OIMLossComputation(cfg)
+    # loss_evaluator = OIMLossComputation_UN(cfg)
     # loss_evaluator = CIRCLELossComputation(cfg)
+    # loss_evaluator = CIRCLELossComputation_UN(cfg)
+    loss_evaluator = HybridMemory(cfg, use_circle_loss=True)
     return loss_evaluator

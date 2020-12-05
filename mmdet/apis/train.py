@@ -67,7 +67,13 @@ def train_detector(model,
             dist=distributed,
             seed=cfg.seed) for ds in dataset
     ]
-
+    cluster_loader = build_dataloader(
+        dataset[0],
+        samples_per_gpu=1,
+        workers_per_gpu=cfg.data.workers_per_gpu,
+        dist=distributed,
+        shuffle=False)
+    
     # put model on gpus
     if distributed:
         find_unused_parameters = cfg.get('find_unused_parameters', False)
@@ -147,4 +153,4 @@ def train_detector(model,
         runner.resume(cfg.resume_from)
     elif cfg.load_from:
         runner.load_checkpoint(cfg.load_from)
-    runner.run(data_loaders, cfg.workflow, cfg.total_epochs)
+    runner.run(cluster_loader, data_loaders, cfg.workflow, cfg.total_epochs)

@@ -61,9 +61,11 @@ class CustomDataset(Dataset):
                  test_mode=False,
                  filter_empty_gt=True,
                  with_reid=False,
-                 is_query=False):
+                 is_query=False,
+                 is_test=False):
         self.with_reid = with_reid
         self.is_query = is_query
+        self.is_test = is_test
         self.ann_file = ann_file
         self.data_root = data_root
         self.img_prefix = img_prefix

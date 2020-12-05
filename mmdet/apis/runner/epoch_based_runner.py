@@ -4,7 +4,7 @@ import platform
 import shutil
 import time
 import warnings
-
+import tqdm
 import torch
 
 import mmcv
@@ -12,6 +12,8 @@ from .base_runner import BaseRunner
 from .builder import RUNNERS
 from .checkpoint import save_checkpoint
 from .utils import get_host_info
+import numpy as np
+import collections
 
 
 @RUNNERS.register_module()
@@ -36,6 +38,106 @@ class EpochBasedRunner(BaseRunner):
         if 'log_vars' in outputs:
             self.log_buffer.update(outputs['log_vars'], outputs['num_samples'])
         self.outputs = outputs
+
+    def extract_feats(self, data_loader):
+        # train_loader+test_forward
+        self.model.eval()
+        self.mode = 'val'
+        features = []
+        pids = []
+        imgids = []
+        print('features extracting ')
+        for i, data_batch in enumerate(data_loader):
+            data = data_batch.copy()
+            with_unlabeled = False
+            if not with_unlabeled:
+                from mmcv.parallel import DataContainer as DC
+                pid = data['gt_labels']._data[0][0][:, 1]
+                imgid = data['gt_labels']._data[0][0][:, 2]
+                idx = pid > -1
+                pid_labeled = pid[idx]
+                imgid_labeled = imgid[idx]
+                if pid_labeled.numel() == 0:
+                    continue
+                pids.extend(pid_labeled)
+                imgids.extend(imgid_labeled)
+                gt_bboxes = [[data['gt_bboxes']._data[0][0][idx]]]
+            else:
+                pids.extend(pid)
+                imgids.extend(imgid)
+                gt_bboxes = [[data['gt_bboxes']._data[0][0]]]
+
+            data = dict(
+                img=[data['img']._data[0]],
+                img_metas=[data['img_metas']],
+                gt_bboxes=gt_bboxes
+            )
+            with torch.no_grad():
+                _, feats = self.model(return_loss=False, **data)
+                features.append(feats)
+
+        features = torch.cat([torch.from_numpy(i) for i in features])
+        self.pids = torch.cat([i.unsqueeze(-1) for i in pids])
+        self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids])
+        self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
+        # save init_features
+        init_features = {}
+        init_features['pids'] = self.pids
+        init_features['imgids'] = self.imgids
+        init_features['features'] = self.model.module.reid_head.loss_evaluator.features
+        torch.save(init_features, 'init_features.pt')
+        del data_loader, features
+
+    def conduct_cluster(self):
+        self.logger.info('Start clustering')
+        start_time = time.time()
+        features = self.model.module.reid_head.loss_evaluator.features.clone()
+        sim = torch.mm(features, features.t())
+        del features
+        neb = 2
+        sim_k, idx = torch.topk(sim, neb, dim=-1)
+        label = torch.arange(idx.shape[0])
+        for i in idx:
+            if self.imgids[i[0]] == self.imgids[i[1]]:
+                continue
+            # min_idx = torch.min(i)
+            # min_val = label[min_idx].clone()
+            min_val = torch.min(label[i])
+            for j in range(neb):
+                label[i[j]] = min_val
+
+        label_set = set(label.tolist())
+        map_label = {label: new for new, label in enumerate(label_set)}
+        pseudo_labels = np.array([map_label[i.item()] for i in label])
+
+        num_ids = len(set(pseudo_labels)) - (1 if -1 in pseudo_labels else 0)
+        total_time = time.time() - start_time
+        self.logger.info('End clustering, total time: %3f', total_time)
+        # generate new dataset and calculate cluster centers
+        labels = []
+        outliers = 0
+        for id in pseudo_labels:
+            if id != -1:
+                labels.append(id)
+            else:
+                labels.append(num_ids + outliers)
+                outliers += 1
+        labels = torch.Tensor(labels).long().cuda()
+        self.model.module.reid_head.loss_evaluator.labels = labels
+
+        from sklearn import metrics
+        true_labels = self.pids.cpu().numpy()
+        pred_labels = labels.cpu().numpy()
+        cluster_metric = metrics.adjusted_rand_score(true_labels, pred_labels)
+        self.logger.info('cluster_metric is %f', cluster_metric)
+
+        # statistics of clusters and un-clustered instances
+        index2label = collections.defaultdict(int)
+        for label in labels:
+            index2label[label.item()] += 1
+        index2label = np.fromiter(index2label.values(), dtype=float)
+        self.logger.info('Statistics for epoch %d: %d clusters, %d un-clustered instances',
+                         self._epoch, (index2label > 1).sum(), (index2label == 1).sum())
 
     def train(self, data_loader, **kwargs):
         self.model.train()
@@ -69,7 +171,7 @@ class EpochBasedRunner(BaseRunner):
 
         self.call_hook('after_val_epoch')
 
-    def run(self, data_loaders, workflow, max_epochs=None, **kwargs):
+    def run(self, cluster_loader,  data_loaders, workflow, max_epochs=None, **kwargs):
         """Start running.
 
         Args:
@@ -104,8 +206,17 @@ class EpochBasedRunner(BaseRunner):
         self.logger.info('workflow: %s, max: %d epochs', workflow,
                          self._max_epochs)
         self.call_hook('before_run')
+        # if osp.exists('init_features.pt'):
+        #     init_features = torch.load('init_features.pt')
+        #     self.pids = init_features['pids']
+        #     self.imgids = init_features['imgids']
+        #     self.model.module.reid_head.loss_evaluator.features = init_features['features'].cuda()
+        #     del init_features
+        # else:
+        #     self.extract_feats(cluster_loader)
 
         while self.epoch < self._max_epochs:
+            # self.conduct_cluster()
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()
