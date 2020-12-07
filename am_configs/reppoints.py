@@ -76,12 +76,12 @@ test_cfg = dict(
     max_per_img=100,
     roi_extractor=dict(
         type='SingleRoIExtractor',
-        roi_layer=dict(type='RoIAlign', output_size=7, sampling_ratio=0),
+        roi_layer=dict(type='RoIAlign', output_size=(7, 7), sampling_ratio=0),
         out_channels=256,
         featmap_strides=[8, 16, 32, 64]))
 
 # optimizer
-optimizer = dict(type='SGD', lr=0.001, momentum=0.9, weight_decay=0.0001)
+optimizer = dict(type='SGD', lr=0.004, momentum=0.9, weight_decay=0.0001)
 optimizer_config = dict(_delete_=True, grad_clip=dict(max_norm=35, norm_type=2))
 # learning policy
 lr_config = dict(

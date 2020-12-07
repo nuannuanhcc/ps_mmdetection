@@ -78,7 +78,7 @@ class OIMLossComputation(nn.Module):
         super(OIMLossComputation, self).__init__()
         self.cfg = cfg
         if self.cfg.dataset_type == 'SysuDataset':
-            self.num_pid = 5532
+            self.num_pid = 15080
             self.queue_size = 5000
         elif self.cfg.dataset_type == 'PrwDataset':
             self.num_pid = 483
@@ -91,18 +91,42 @@ class OIMLossComputation(nn.Module):
 
         self.register_buffer('lut', torch.zeros(self.num_pid, self.out_channels).cuda())
         self.register_buffer('queue', torch.zeros(self.queue_size, self.out_channels).cuda())
+        self.register_buffer('lut1', torch.zeros(self.num_pid, self.out_channels).cuda())
+        self.register_buffer('queue1', torch.zeros(self.queue_size, self.out_channels).cuda())
 
-    def forward(self, features, gt_labels):
+    def forward(self, features1, features, gt_labels):
 
         pids = torch.cat([i[:, -1] for i in gt_labels])
         num_gt = pids.shape[0]
-
         reid_result = OIM.apply(features, pids, self.lut, self.queue, num_gt, self.lut_momentum)
         loss_weight = torch.cat([torch.ones(self.num_pid).cuda(), torch.zeros(self.queue_size).cuda()])
-
         scalar = 10
         loss_reid = F.cross_entropy(reid_result * scalar, pids, weight=loss_weight, ignore_index=-1)
-        return loss_reid
+
+        reid_result1 = OIM.apply(features1, pids, self.lut1, self.queue1, num_gt, self.lut_momentum)
+        loss_reid1 = F.cross_entropy(reid_result1 * scalar, pids, weight=loss_weight, ignore_index=-1)
+
+        # feature_level
+        # loss_cos = 1 - features.mm(features1.t()).diag().mean()
+        # loss_l1 = torch.mean(torch.abs(features-features1))
+        # loss_l2 = torch.mean((features-features1)**2)
+        # sim = features.mm(features.t())
+        # sim1 = features1.mm(features1.t())
+        # loss_l1_sim = torch.mean(torch.abs(sim-sim1))
+        # loss_l2_sim = torch.mean((sim-sim1)**2)
+
+        # prob_level
+        log_p = F.log_softmax(reid_result)
+        log_q = F.log_softmax(reid_result1)
+        p = F.softmax(reid_result)
+        q = F.softmax(reid_result1)
+        loss_kl = F.kl_div(log_p, q, reduction='sum')
+        loss_kl1 = F.kl_div(log_q, p, reduction='sum')
+
+        # loss_prob_l1 = torch.mean(torch.abs(p-q))  # e-7
+        # loss_prob_l2 = torch.mean((p - q) ** 2)  # e-12
+
+        return (loss_reid+loss_reid1)/2+loss_kl+loss_kl1
 
 
 class CIRCLELossComputation(nn.Module):
@@ -126,7 +150,7 @@ class CIRCLELossComputation(nn.Module):
         self.register_buffer('lut', torch.zeros(num_labeled, self.out_channels).cuda())
         self.register_buffer('queue', torch.zeros(num_unlabeled, self.out_channels).cuda())
 
-    def forward(self, features, gt_labels):
+    def forward(self, features1, features, gt_labels):
 
         pids = torch.cat([i[:, -1] for i in gt_labels])
         id_labeled = pids[pids > -1]
@@ -169,7 +193,7 @@ class OIMLossComputation_UN(nn.Module):
 
         self.register_buffer('lut', torch.zeros(self.num_pid, self.out_channels).cuda())
 
-    def forward(self, features, gt_labels):
+    def forward(self, features1, features, gt_labels):
 
         pids = torch.cat([i[:, -1] for i in gt_labels])
         id_labeled = pids[pids > -1]
@@ -204,7 +228,7 @@ class CIRCLELossComputation_UN(nn.Module):
         self.register_buffer('id_inx', -torch.ones(num_labeled, dtype=torch.long).cuda())
         self.register_buffer('lut', torch.zeros(num_labeled, self.out_channels).cuda())
 
-    def forward(self, features, gt_labels):
+    def forward(self, features1, features, gt_labels):
 
         pids = torch.cat([i[:, -1] for i in gt_labels])
         id_labeled = pids[pids > -1]
@@ -270,7 +294,7 @@ class HybridMemory(nn.Module):
         self.register_buffer('labels', torch.arange(num_labeled, dtype=torch.long).cuda())
         self.register_buffer('features', torch.zeros(num_labeled, self.out_channels).cuda())
 
-    def forward(self, features, gt_labels):
+    def forward(self, features1, features, gt_labels):
         pids = torch.cat([i[:, -1] for i in gt_labels])
         id_labeled = pids[pids > -1]
         feat_labeled = features[pids > -1]

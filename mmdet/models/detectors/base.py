@@ -231,6 +231,17 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
                 DDP, it means the batch size on each GPU), which is used for \
                 averaging the logs.
         """
+        imgs = data['img'].clone()
+        bboxes = data['gt_bboxes'].copy()
+        crop_imgs = []
+        for img, box in zip(imgs, bboxes):
+            box = torch.round(box).int().tolist()
+            img = img.unsqueeze(0)
+            im = [torch.nn.functional.interpolate(img[:, :, b[1]:b[3], b[0]:b[2]], size=(7*16, 7*16)) for b in box]
+            crop_imgs.extend(im)
+        crop_imgs = torch.cat(crop_imgs)
+        data['img_metas'].append(crop_imgs)
+
         losses = self(**data)
         loss, log_vars = self._parse_losses(losses)
 

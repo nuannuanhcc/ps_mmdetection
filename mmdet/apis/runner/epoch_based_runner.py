@@ -41,6 +41,11 @@ class EpochBasedRunner(BaseRunner):
 
     def extract_feats(self, data_loader):
         # train_loader+test_forward
+        from mmcv.runner import get_dist_info
+        rank, world_size = get_dist_info()
+        dataset = data_loader.dataset
+        if rank == 0:
+            prog_bar = mmcv.ProgressBar(len(dataset))
         self.model.eval()
         self.mode = 'val'
         features = []
@@ -48,6 +53,10 @@ class EpochBasedRunner(BaseRunner):
         imgids = []
         print('features extracting ')
         for i, data_batch in enumerate(data_loader):
+            if rank == 0:
+                batch_size = 1
+                for _ in range(batch_size * world_size):
+                    prog_bar.update()
             data = data_batch.copy()
             with_unlabeled = False
             if not with_unlabeled:
@@ -58,13 +67,16 @@ class EpochBasedRunner(BaseRunner):
                 pid_labeled = pid[idx]
                 imgid_labeled = imgid[idx]
                 if pid_labeled.numel() == 0:
+                    pids.append(None)
+                    imgids.append(None)
+                    features.append(None)
                     continue
-                pids.extend(pid_labeled)
-                imgids.extend(imgid_labeled)
+                pids.append(pid_labeled)
+                imgids.append(imgid_labeled)
                 gt_bboxes = [[data['gt_bboxes']._data[0][0][idx]]]
             else:
-                pids.extend(pid)
-                imgids.extend(imgid)
+                pids.append(pid)
+                imgids.append(imgid)
                 gt_bboxes = [[data['gt_bboxes']._data[0][0]]]
 
             data = dict(
@@ -75,18 +87,17 @@ class EpochBasedRunner(BaseRunner):
             with torch.no_grad():
                 _, feats = self.model(return_loss=False, **data)
                 features.append(feats)
-
-        features = torch.cat([torch.from_numpy(i) for i in features])
-        self.pids = torch.cat([i.unsqueeze(-1) for i in pids])
-        self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids])
-        self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
-        # save init_features
-        init_features = {}
-        init_features['pids'] = self.pids
-        init_features['imgids'] = self.imgids
-        init_features['features'] = self.model.module.reid_head.loss_evaluator.features
-        torch.save(init_features, 'init_features.pt')
-        del data_loader, features
+        if world_size > 1:
+            from ..test import collect_results_cpu
+            features = collect_results_cpu(features, len(dataset))
+            pids = collect_results_cpu(pids, len(dataset))
+            imgids = collect_results_cpu(imgids, len(dataset))
+        if rank == 0:
+            features = torch.cat([torch.from_numpy(i) for i in features if i is not None])
+            self.pids = torch.cat([i.unsqueeze(-1) for i in pids if i is not None]).squeeze()
+            self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids if i is not None]).squeeze()
+            self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
+            del data_loader, features
 
     def conduct_cluster(self):
         self.logger.info('Start clustering')
@@ -206,17 +217,13 @@ class EpochBasedRunner(BaseRunner):
         self.logger.info('workflow: %s, max: %d epochs', workflow,
                          self._max_epochs)
         self.call_hook('before_run')
-        # if osp.exists('init_features.pt'):
-        #     init_features = torch.load('init_features.pt')
-        #     self.pids = init_features['pids']
-        #     self.imgids = init_features['imgids']
-        #     self.model.module.reid_head.loss_evaluator.features = init_features['features'].cuda()
-        #     del init_features
-        # else:
-        #     self.extract_feats(cluster_loader)
+        self.extract_feats(cluster_loader)
 
         while self.epoch < self._max_epochs:
-            # self.conduct_cluster()
+            from mmcv.runner import get_dist_info
+            rank, world_size = get_dist_info()
+            if rank == 0:
+                self.conduct_cluster()
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()

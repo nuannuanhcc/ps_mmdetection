@@ -95,7 +95,8 @@ class SingleStageDetector(BaseDetector):
         Returns:
             dict[str, Tensor]: A dictionary of loss components.
         """
-
+        img_crop = img_metas.pop()
+        x_crop = self.extract_feat(img_crop)[1]
         x = self.extract_feat(img)
         cls_labels = [i[:, 0] for i in gt_labels] if self.train_cfg.with_reid else gt_labels
         losses = self.bbox_head.forward_train(x, img_metas, gt_bboxes,
@@ -103,7 +104,7 @@ class SingleStageDetector(BaseDetector):
         if self.train_cfg.with_reid:
             bbox_feats = self.bbox_roi_extractor(
                 x[:self.bbox_roi_extractor.num_inputs], bbox2roi(gt_bboxes))
-            loss_reid = self.reid_head(bbox_feats, gt_labels)
+            loss_reid = self.reid_head(bbox_feats, x_crop, gt_labels)
             losses.update(loss_reid)
         return losses
 
