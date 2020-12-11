@@ -107,26 +107,19 @@ class OIMLossComputation(nn.Module):
         loss_reid1 = F.cross_entropy(reid_result1 * scalar, pids, weight=loss_weight, ignore_index=-1)
 
         # feature_level
-        # loss_cos = 1 - features.mm(features1.t()).diag().mean()
-        # loss_l1 = torch.mean(torch.abs(features-features1))
-        # loss_l2 = torch.mean((features-features1)**2)
-        # sim = features.mm(features.t())
-        # sim1 = features1.mm(features1.t())
-        # loss_l1_sim = torch.mean(torch.abs(sim-sim1))
-        # loss_l2_sim = torch.mean((sim-sim1)**2)
+        loss_cos = 1 - features.mm(features1.t()).diag().mean()
 
         # prob_level
-        log_p = F.log_softmax(reid_result)
-        log_q = F.log_softmax(reid_result1)
-        p = F.softmax(reid_result)
-        q = F.softmax(reid_result1)
+        sim = features.mm(features.t())
+        sim1 = features1.mm(features1.t())
+        log_p = F.log_softmax(sim)
+        log_q = F.log_softmax(sim1)
+        p = F.softmax(sim)
+        q = F.softmax(sim1)
         loss_kl = F.kl_div(log_p, q, reduction='sum')
         loss_kl1 = F.kl_div(log_q, p, reduction='sum')
 
-        # loss_prob_l1 = torch.mean(torch.abs(p-q))  # e-7
-        # loss_prob_l2 = torch.mean((p - q) ** 2)  # e-12
-
-        return (loss_reid+loss_reid1)/2+loss_kl+loss_kl1
+        return (loss_reid + loss_reid1) / 2 + loss_kl + loss_kl1 + loss_cos
 
 
 class CIRCLELossComputation(nn.Module):
@@ -192,22 +185,39 @@ class OIMLossComputation_UN(nn.Module):
         self.out_channels = 2048
 
         self.register_buffer('lut', torch.zeros(self.num_pid, self.out_channels).cuda())
+        self.register_buffer('lut1', torch.zeros(self.num_pid, self.out_channels).cuda())
 
     def forward(self, features1, features, gt_labels):
 
         pids = torch.cat([i[:, -1] for i in gt_labels])
         id_labeled = pids[pids > -1]
         feat_labeled = features[pids > -1]
+        feat_labeled1 = features1[pids > -1]
 
         if not id_labeled.numel():
             loss = F.cross_entropy(features.mm(self.lut.t()), pids, ignore_index=-1)
             return loss
 
         sim_all = HM.apply(feat_labeled, id_labeled, self.lut, self.m)
+        sim_all1 = HM.apply(feat_labeled1, id_labeled, self.lut1, self.m)
 
         scalar = 10
         loss = F.cross_entropy(sim_all * scalar, id_labeled)
-        return loss
+        loss1 = F.cross_entropy(sim_all1 * scalar, id_labeled)
+
+        # feature_level
+        loss_cos = 1 - features.mm(features1.t()).diag().mean()
+
+        # prob_level
+        sim = features.mm(features.t())
+        sim1 = features1.mm(features1.t())
+        log_p = F.log_softmax(sim)
+        log_q = F.log_softmax(sim1)
+        p = F.softmax(sim)
+        q = F.softmax(sim1)
+        loss_kl = F.kl_div(log_p, q, reduction='sum')
+        loss_kl1 = F.kl_div(log_q, p, reduction='sum')
+        return (loss + loss1) / 2 + loss_cos + loss_kl + loss_kl1
 
 
 class CIRCLELossComputation_UN(nn.Module):
@@ -293,40 +303,66 @@ class HybridMemory(nn.Module):
 
         self.register_buffer('labels', torch.arange(num_labeled, dtype=torch.long).cuda())
         self.register_buffer('features', torch.zeros(num_labeled, self.out_channels).cuda())
+        self.register_buffer('features1', torch.zeros(num_labeled, self.out_channels).cuda())
 
     def forward(self, features1, features, gt_labels):
         pids = torch.cat([i[:, -1] for i in gt_labels])
         id_labeled = pids[pids > -1]
         feat_labeled = features[pids > -1]
+        feat_labeled1 = features1[pids > -1]
 
         if not id_labeled.numel():
             loss = F.cross_entropy(features.mm(self.features.t()), pids, ignore_index=-1)
             return loss
 
         sim_all = HM.apply(feat_labeled, id_labeled, self.features, self.m)
+        sim_all1 = HM.apply(feat_labeled1, id_labeled, self.features1, self.m)
         targets = self.labels[id_labeled]
+
+        # feature_level
+        loss_cos = 1 - features.mm(features1.t()).diag().mean()
+        # prob_level
+        sim = features.mm(features.t())
+        sim1 = features1.mm(features1.t())
+        log_p = F.log_softmax(sim)
+        log_q = F.log_softmax(sim1)
+        p = F.softmax(sim)
+        q = F.softmax(sim1)
+        loss_kl = F.kl_div(log_p, q, reduction='sum')
+        loss_kl1 = F.kl_div(log_q, p, reduction='sum')
 
         if self.use_circle_loss:
             positive_mask = targets.view(-1, 1) == self.labels.view(1, -1)
             sim_ap = sim_all.masked_fill(~positive_mask, float("inf"))
             sim_an = sim_all.masked_fill(positive_mask, float("-inf"))
             loss = circle_loss(sim_ap, sim_an)
-            return loss
+
+            sim_ap1 = sim_all1.masked_fill(~positive_mask, float("inf"))
+            sim_an1 = sim_all1.masked_fill(positive_mask, float("-inf"))
+            loss1 = circle_loss(sim_ap1, sim_an1)
+            return (loss + loss1) / 2 + loss_cos + loss_kl + loss_kl1
 
         sim_all /= self.temp
+        sim_all1 /= self.temp
         N = sim_all.shape[0]
 
         labels = self.labels.clone()
 
-        sim = torch.zeros(labels.max()+1, N).float().cuda()
+        sim = torch.zeros(labels.max() + 1, N).float().cuda()
         sim.index_add_(0, labels, sim_all.t().contiguous())
-        nums = torch.zeros(labels.max()+1, 1).float().cuda()
+        nums = torch.zeros(labels.max() + 1, 1).float().cuda()
         nums.index_add_(0, labels, torch.ones(labels.shape[0], 1).float().cuda())
-
         sim = sim / nums.expand_as(sim)
         loss = F.cross_entropy(sim.t(), targets)
 
-        return loss
+        sim = torch.zeros(labels.max() + 1, N).float().cuda()
+        sim.index_add_(0, labels, sim_all1.t().contiguous())
+        nums = torch.zeros(labels.max() + 1, 1).float().cuda()
+        nums.index_add_(0, labels, torch.ones(labels.shape[0], 1).float().cuda())
+        sim = sim / nums.expand_as(sim)
+        loss1 = F.cross_entropy(sim.t(), targets)
+
+        return (loss + loss1) / 2 + loss_cos + loss_kl + loss_kl1
 
 
 def make_reid_loss_evaluator(cfg):
