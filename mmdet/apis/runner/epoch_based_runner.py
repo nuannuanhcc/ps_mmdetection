@@ -217,13 +217,13 @@ class EpochBasedRunner(BaseRunner):
         self.logger.info('workflow: %s, max: %d epochs', workflow,
                          self._max_epochs)
         self.call_hook('before_run')
-        self.extract_feats(cluster_loader)
+        # self.extract_feats(cluster_loader)
 
         while self.epoch < self._max_epochs:
             from mmcv.runner import get_dist_info
             rank, world_size = get_dist_info()
-            if rank == 0:
-                self.conduct_cluster()
+            # if rank == 0:
+            #     self.conduct_cluster()
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()

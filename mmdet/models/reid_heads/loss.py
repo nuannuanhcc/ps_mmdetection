@@ -289,7 +289,7 @@ class HybridMemory(nn.Module):
         self.use_circle_loss = use_circle_loss
 
         if self.cfg.dataset_type == 'SysuDataset':
-            num_labeled = 15080  # 15080/55260
+            num_labeled = 55260  # 15080/55260
             num_unlabeled = 8192
         elif self.cfg.dataset_type == 'PrwDataset':
             num_labeled = 8192
@@ -306,7 +306,7 @@ class HybridMemory(nn.Module):
         self.register_buffer('features1', torch.zeros(num_labeled, self.out_channels).cuda())
 
     def forward(self, features1, features, gt_labels):
-        pids = torch.cat([i[:, -1] for i in gt_labels])
+        pids = torch.cat([i[:, -2] for i in gt_labels])
         id_labeled = pids[pids > -1]
         feat_labeled = features[pids > -1]
         feat_labeled1 = features1[pids > -1]
