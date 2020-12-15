@@ -85,6 +85,13 @@ class EpochBasedRunner(BaseRunner):
                 gt_bboxes=gt_bboxes
             )
             with torch.no_grad():
+                img = data['img'][0].clone()
+                box = data['gt_bboxes'].copy()[0][0]
+                box = torch.round(box).int().tolist()
+                img_crop = [torch.nn.functional.interpolate(img[:, :, b[1]:b[3], b[0]:b[2]], size=(7 * 16, 7 * 16)) for b in box]
+                img_crop = torch.cat(img_crop).cuda()
+                data['img_metas'][0]._data[0][0]['img_crop'] = img_crop
+
                 _, feats = self.model(return_loss=False, **data)
                 features.append(feats)
         if world_size > 1:
@@ -96,15 +103,17 @@ class EpochBasedRunner(BaseRunner):
             features = torch.cat([torch.from_numpy(i) for i in features if i is not None])
             self.pids = torch.cat([i.unsqueeze(-1) for i in pids if i is not None]).squeeze()
             self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids if i is not None]).squeeze()
-            self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
+            self.model.module.reid_head.loss_evaluator.features1 = torch.nn.functional.normalize(features, dim=1).cuda()
             del data_loader, features
 
     def conduct_cluster(self):
         self.logger.info('Start clustering')
         start_time = time.time()
-        features = self.model.module.reid_head.loss_evaluator.features.clone()
+        features = self.model.module.reid_head.loss_evaluator.features1.clone()
         sim = torch.mm(features, features.t())
         del features
+
+        # cluster1
         neb = 2
         sim_k, idx = torch.topk(sim, neb, dim=-1)
         label = torch.arange(idx.shape[0])
@@ -116,6 +125,21 @@ class EpochBasedRunner(BaseRunner):
             min_val = torch.min(label[i])
             for j in range(neb):
                 label[i[j]] = min_val
+
+        # cluster3
+        # n = sim.shape[0]
+        # label = torch.arange(n)
+        # sim = sim.mul(1 - torch.eye(n).cuda())
+        # while sim.max() > 0.5:
+        #     max_val = torch.max(sim)
+        #     max_idx = torch.argmax(sim)
+        #     x, y = max_idx // n, max_idx % n
+        #     if self.imgids[x] == self.imgids[y]:
+        #         sim[x, y] = 0
+        #     else:
+        #         label[x] = label[y]
+        #         sim[x, :] = 0
+        #         sim[:, y] = 0
 
         label_set = set(label.tolist())
         map_label = {label: new for new, label in enumerate(label_set)}
@@ -217,13 +241,13 @@ class EpochBasedRunner(BaseRunner):
         self.logger.info('workflow: %s, max: %d epochs', workflow,
                          self._max_epochs)
         self.call_hook('before_run')
-        # self.extract_feats(cluster_loader)
+        self.extract_feats(cluster_loader)
 
         while self.epoch < self._max_epochs:
             from mmcv.runner import get_dist_info
             rank, world_size = get_dist_info()
-            # if rank == 0:
-            #     self.conduct_cluster()
+            if rank == 0:
+                self.conduct_cluster()
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()

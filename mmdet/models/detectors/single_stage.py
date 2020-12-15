@@ -123,13 +123,17 @@ class SingleStageDetector(BaseDetector):
                 corresponds to each class.
         """
         # backbone
+        if 'img_crop' in img_metas[0].keys():
+            img_crop = self.extract_feat(img_metas[0]['img_crop'])[1]
+        else:
+            img_crop = None
         x = self.extract_feat(img)
         # person search -- query
         if gt_bboxes is not None:
             gt_bbox_list = gt_bboxes[0][0]  # [n, 4]
             gt_bbox_feats = self.bbox_roi_extractor(
                 x[:self.bbox_roi_extractor.num_inputs], bbox2roi([gt_bbox_list]))
-            gt_bbox_feats = self.reid_head(gt_bbox_feats)
+            gt_bbox_feats = self.reid_head(gt_bbox_feats, img_crop)
             gt_bbox_list = torch.cat([gt_bbox_list / img_metas[0]['scale_factor'][0],  # TODO multi-scale
                                       torch.ones(gt_bbox_list.shape[0], 1).cuda()], dim=-1)
             bbox_results = [bbox2result(gt_bbox_list, torch.zeros(gt_bbox_list.shape[0]), self.bbox_head.num_classes)]
