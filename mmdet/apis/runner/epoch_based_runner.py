@@ -58,11 +58,11 @@ class EpochBasedRunner(BaseRunner):
                 for _ in range(batch_size * world_size):
                     prog_bar.update()
             data = data_batch.copy()
-            with_unlabeled = False
+            with_unlabeled = True
+            from mmcv.parallel import DataContainer as DC
+            pid = data['gt_labels']._data[0][0][:, 1]
+            imgid = data['gt_labels']._data[0][0][:, 2]
             if not with_unlabeled:
-                from mmcv.parallel import DataContainer as DC
-                pid = data['gt_labels']._data[0][0][:, 1]
-                imgid = data['gt_labels']._data[0][0][:, 2]
                 idx = pid > -1
                 pid_labeled = pid[idx]
                 imgid_labeled = imgid[idx]
