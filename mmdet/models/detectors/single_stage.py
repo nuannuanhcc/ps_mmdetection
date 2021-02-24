@@ -129,7 +129,12 @@ class SingleStageDetector(BaseDetector):
             gt_bbox_list = gt_bboxes[0][0]  # [n, 4]
             gt_bbox_feats = self.bbox_roi_extractor(
                 x[:self.bbox_roi_extractor.num_inputs], bbox2roi([gt_bbox_list]))
-            gt_bbox_feats = self.reid_head(gt_bbox_feats)
+            #
+            test_box = bbox2roi([gt_bbox_list])[:, 1:].clone()
+            test_img_crop = self.stn(img, test_box).cuda()
+            test_img_feat = self.extract_feat(test_img_crop)[1]
+            #
+            gt_bbox_feats = self.reid_head(gt_bbox_feats, test_img_feat)
             gt_bbox_list = torch.cat([gt_bbox_list / img_metas[0]['scale_factor'][0],  # TODO multi-scale
                                       torch.ones(gt_bbox_list.shape[0], 1).cuda()], dim=-1)
             bbox_results = [bbox2result(gt_bbox_list, torch.zeros(gt_bbox_list.shape[0]), self.bbox_head.num_classes)]
@@ -151,7 +156,12 @@ class SingleStageDetector(BaseDetector):
         pre_bbox_list = bbox_list[0][0] * img_metas[0]['scale_factor'][0]
         pre_bbox_feats = self.bbox_roi_extractor(
             x[:self.bbox_roi_extractor.num_inputs], bbox2roi([pre_bbox_list]))
-        pre_bbox_feats = self.reid_head(pre_bbox_feats)
+        #
+        test_box = bbox2roi([pre_bbox_list])[:, 1:].clone()
+        test_img_crop = self.stn(img, test_box).cuda()
+        test_img_feat = self.extract_feat(test_img_crop)[1]
+        #
+        pre_bbox_feats = self.reid_head(pre_bbox_feats, test_img_feat)
         return bbox_results, pre_bbox_feats.cpu().numpy()
 
     def aug_test(self, imgs, img_metas, rescale=False):
@@ -178,3 +188,29 @@ class SingleStageDetector(BaseDetector):
 
         feats = self.extract_feats(imgs)
         return [self.bbox_head.aug_test(feats, img_metas, rescale=rescale)]
+
+
+    def stn(self, x, box):
+        import torch.nn.functional as F
+        from PIL import Image
+        from torchvision import transforms
+        x = x.squeeze()
+        if x.dim() == 3:
+            x = x.expand(box.shape[0], -1, -1, -1)
+        box_norm = box.float()
+        # normalization the weight and height 0~w/h => -1~1
+        # min~max => a~b  x_norm = (b-a)/(max-min)*(x-min)+a
+        box_norm[:, (0, 2)] = 2 * (box[:, (0, 2)]) / x.shape[-1] - 1
+        box_norm[:, (1, 3)] = 2 * (box[:, (1, 3)]) / x.shape[-2] - 1
+        # calculate the affine parameter
+        theta = torch.zeros((x.shape[0], 6)).cuda()
+        theta[:, 0] = (box_norm[:, 2] - box_norm[:, 0]) / 2
+        theta[:, 2] = (box_norm[:, 2] + box_norm[:, 0]) / 2
+        theta[:, 4] = (box_norm[:, 3] - box_norm[:, 1]) / 2
+        theta[:, 5] = (box_norm[:, 3] + box_norm[:, 1]) / 2
+        theta = theta.view(-1, 2, 3)
+        # new_size is changable
+        new_size = torch.Size([*x.shape[:2], 7 * 16, 7 * 16])
+        grid = F.affine_grid(theta, new_size)
+        x = F.grid_sample(x, grid)
+        return x

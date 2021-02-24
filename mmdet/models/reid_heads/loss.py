@@ -299,24 +299,25 @@ class HybridMemory(nn.Module):
 
         self.m = 0.2
         self.temp = 0.05
-        self.out_channels = 2048
+        self.out_channels = 4096
 
         self.register_buffer('labels', torch.arange(num_labeled, dtype=torch.long).cuda())
         self.register_buffer('features', torch.zeros(num_labeled, self.out_channels).cuda())
-        self.register_buffer('features1', torch.zeros(num_labeled, self.out_channels).cuda())
+        # self.register_buffer('features1', torch.zeros(num_labeled, self.out_channels).cuda())
 
-    def forward(self, features1, features, gt_labels):
+    def forward(self, feat_cat, features1, features, gt_labels):
         pids = torch.cat([i[:, -2] for i in gt_labels])
         id_labeled = pids[pids > -1]
         feat_labeled = features[pids > -1]
-        feat_labeled1 = features1[pids > -1]
+        # feat_labeled1 = features1[pids > -1]
 
         if not id_labeled.numel():
             loss = F.cross_entropy(features.mm(self.features.t()), pids, ignore_index=-1)
             return loss
 
-        sim_all = HM.apply(feat_labeled, id_labeled, self.features, self.m)
-        sim_all1 = HM.apply(feat_labeled1, id_labeled, self.features1, self.m)
+        # sim_all = HM.apply(feat_labeled, id_labeled, self.features, self.m)
+        # sim_all1 = HM.apply(feat_labeled1, id_labeled, self.features1, self.m)
+        sim_all = HM.apply(feat_cat, id_labeled, self.features, self.m)
         targets = self.labels[id_labeled]
 
         # feature_level
@@ -337,13 +338,14 @@ class HybridMemory(nn.Module):
             sim_an = sim_all.masked_fill(positive_mask, float("-inf"))
             loss = circle_loss(sim_ap, sim_an)
 
-            sim_ap1 = sim_all1.masked_fill(~positive_mask, float("inf"))
-            sim_an1 = sim_all1.masked_fill(positive_mask, float("-inf"))
-            loss1 = circle_loss(sim_ap1, sim_an1)
-            return (loss + loss1) / 2 + loss_cos + loss_kl + loss_kl1
+            # sim_ap1 = sim_all1.masked_fill(~positive_mask, float("inf"))
+            # sim_an1 = sim_all1.masked_fill(positive_mask, float("-inf"))
+            # loss1 = circle_loss(sim_ap1, sim_an1)
+            # return (loss + loss1) / 2 + loss_cos + loss_kl + loss_kl1
+            return loss + loss_cos + loss_kl + loss_kl1
 
         sim_all /= self.temp
-        sim_all1 /= self.temp
+        # sim_all1 /= self.temp
         N = sim_all.shape[0]
 
         labels = self.labels.clone()
@@ -356,7 +358,7 @@ class HybridMemory(nn.Module):
         loss = F.cross_entropy(sim.t(), targets)
 
         sim = torch.zeros(labels.max() + 1, N).float().cuda()
-        sim.index_add_(0, labels, sim_all1.t().contiguous())
+        # sim.index_add_(0, labels, sim_all1.t().contiguous())
         nums = torch.zeros(labels.max() + 1, 1).float().cuda()
         nums.index_add_(0, labels, torch.ones(labels.shape[0], 1).float().cuda())
         sim = sim / nums.expand_as(sim)

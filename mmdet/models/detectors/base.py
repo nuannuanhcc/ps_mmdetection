@@ -235,12 +235,12 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         bboxes = data['gt_bboxes'].copy()
         crop_imgs = []
         for img, box in zip(imgs, bboxes):
-            box = torch.round(box).int().tolist()
-            img = img.unsqueeze(0)
-            im = [torch.nn.functional.interpolate(img[:, :, b[1]:b[3], b[0]:b[2]], size=(7*16, 7*16)) for b in box]
-            crop_imgs.extend(im)
+            img = img.unsqueeze(0).clone()
+            box = box.clone()
+            im = self.stn(img, box).cuda()
+            crop_imgs.append(im)
         crop_imgs = torch.cat(crop_imgs)
-        data['img_metas'].append(crop_imgs)
+        data['img_metas'].append(crop_imgs.detach())
 
         losses = self(**data)
         loss, log_vars = self._parse_losses(losses)
@@ -349,3 +349,28 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
 
         if not (show or out_file):
             return img
+
+    def stn(self, x, box):
+        import torch.nn.functional as F
+        from PIL import Image
+        from torchvision import transforms
+        x = x.squeeze()
+        if x.dim() == 3:
+            x = x.expand(box.shape[0], -1, -1, -1)
+        box_norm = box.float()
+        # normalization the weight and height 0~w/h => -1~1
+        # min~max => a~b  x_norm = (b-a)/(max-min)*(x-min)+a
+        box_norm[:, (0, 2)] = 2 * (box[:, (0, 2)]) / x.shape[-1] - 1
+        box_norm[:, (1, 3)] = 2 * (box[:, (1, 3)]) / x.shape[-2] - 1
+        # calculate the affine parameter
+        theta = torch.zeros((x.shape[0], 6)).cuda()
+        theta[:, 0] = (box_norm[:, 2] - box_norm[:, 0]) / 2
+        theta[:, 2] = (box_norm[:, 2] + box_norm[:, 0]) / 2
+        theta[:, 4] = (box_norm[:, 3] - box_norm[:, 1]) / 2
+        theta[:, 5] = (box_norm[:, 3] + box_norm[:, 1]) / 2
+        theta = theta.view(-1, 2, 3)
+        # new_size is changable
+        new_size = torch.Size([*x.shape[:2], 7 * 16, 7 * 16])
+        grid = F.affine_grid(theta, new_size)
+        x = F.grid_sample(x, grid)
+        return x

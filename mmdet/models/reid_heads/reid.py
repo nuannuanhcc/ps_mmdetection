@@ -24,10 +24,14 @@ class REIDModule(torch.nn.Module):
             x_crop = x_crop.view(x_crop.size(0), -1)
             x_crop = self.fc(x_crop)
             feats_crop = F.normalize(x_crop, dim=-1)
+            feats_cat = torch.cat([feats_crop, feats], dim=-1)
 
         if not self.training:
-            return feats
-        loss_reid = self.loss_evaluator(feats_crop, feats, gt_labels)
+            if x_crop is None:
+                return feats
+            else:
+                return feats_cat
+        loss_reid = self.loss_evaluator(feats_cat, feats_crop, feats, gt_labels)
         return {"loss_reid": [loss_reid], }
 
 
