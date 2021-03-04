@@ -292,7 +292,7 @@ class HybridMemory(nn.Module):
             num_labeled = 55260  # 15080/55260
             num_unlabeled = 8192
         elif self.cfg.dataset_type == 'PrwDataset':
-            num_labeled = 8192
+            num_labeled = 18048  # 14906/18048
             num_unlabeled = 8192
         else:
             raise KeyError(cfg.DATASETS.TRAIN)
