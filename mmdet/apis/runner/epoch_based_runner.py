@@ -103,13 +103,13 @@ class EpochBasedRunner(BaseRunner):
             features = torch.cat([torch.from_numpy(i) for i in features if i is not None])
             self.pids = torch.cat([i.unsqueeze(-1) for i in pids if i is not None]).squeeze()
             self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids if i is not None]).squeeze()
-            self.model.module.reid_head.loss_evaluator.features1 = torch.nn.functional.normalize(features, dim=1).cuda()
+            self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
             del data_loader, features
 
     def conduct_cluster(self):
         self.logger.info('Start clustering')
         start_time = time.time()
-        features = self.model.module.reid_head.loss_evaluator.features1.clone()
+        features = self.model.module.reid_head.loss_evaluator.features.clone()
         sim = torch.mm(features, features.t())
         del features
 
