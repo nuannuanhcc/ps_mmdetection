@@ -1,7 +1,7 @@
-dataset_type = 'SysuDataset'
-data_root = 'data/sysu/'
-# dataset_type = 'PrwDataset'
-# data_root = 'data/prw/'
+# dataset_type = 'SysuDataset'
+# data_root = 'data/sysu/'
+dataset_type = 'PrwDataset'
+data_root = 'data/prw/'
 img_size = (1333, 800)  # (1333, 800), (1500, 900)
 batch_size = 9
 with_reid = True

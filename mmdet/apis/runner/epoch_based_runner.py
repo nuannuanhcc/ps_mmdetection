@@ -105,26 +105,27 @@ class EpochBasedRunner(BaseRunner):
             self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids if i is not None]).squeeze()
             self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
             del data_loader, features
+        torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.features, 0, async_op=True)
 
     def conduct_cluster(self):
-        self.logger.info('Start clustering')
-        start_time = time.time()
-        features = self.model.module.reid_head.loss_evaluator.features.clone()
-        sim = torch.mm(features, features.t())
-        del features
-
-        # cluster1
-        neb = 2
-        sim_k, idx = torch.topk(sim, neb, dim=-1)
-        label = torch.arange(idx.shape[0])
-        for i in idx:
-            if self.imgids[i[0]] == self.imgids[i[1]]:
-                continue
-            # min_idx = torch.min(i)
-            # min_val = label[min_idx].clone()
-            min_val = torch.min(label[i])
-            for j in range(neb):
-                label[i[j]] = min_val
+        # self.logger.info('Start clustering')
+        # start_time = time.time()
+        # features = self.model.module.reid_head.loss_evaluator.features.clone().cpu()
+        # sim = torch.mm(features, features.t())
+        # del features
+        #
+        # # cluster1
+        # neb = 2
+        # sim_k, idx = torch.topk(sim, neb, dim=-1)
+        # label = torch.arange(idx.shape[0])
+        # for i in idx:
+        #     if self.imgids[i[0]] == self.imgids[i[1]]:
+        #         continue
+        #     # min_idx = torch.min(i)
+        #     # min_val = label[min_idx].clone()
+        #     min_val = torch.min(label[i])
+        #     for j in range(neb):
+        #         label[i[j]] = min_val
 
         # cluster3
         # n = sim.shape[0]
@@ -140,10 +141,55 @@ class EpochBasedRunner(BaseRunner):
         #         label[x] = label[y]
         #         sim[x, :] = 0
         #         sim[:, y] = 0
+        #
+        # label_set = set(label.tolist())
+        # map_label = {label: new for new, label in enumerate(label_set)}
+        # pseudo_labels = np.array([map_label[i.item()] for i in label])
 
-        label_set = set(label.tolist())
-        map_label = {label: new for new, label in enumerate(label_set)}
-        pseudo_labels = np.array([map_label[i.item()] for i in label])
+        self.logger.info('Start clustering')
+        start_time = time.time()
+        features = self.model.module.reid_head.loss_evaluator.features.clone().cpu()
+        import scipy.sparse as sp
+        sim = torch.mm(features, features.t())
+        n = sim.shape[0]
+        _, idx=torch.topk(sim, 2, dim=-1)
+
+        fliter_idx = []
+        for i in idx:
+            if self.imgids[i[0]] != self.imgids[i[1]]:
+                fliter_idx.append(i.tolist())
+        initial_rank = np.array(fliter_idx)
+        orig_dist = []
+
+        # The Clustering Equation clust_rank
+        A = sp.csr_matrix((np.ones_like(initial_rank[:,0], dtype=np.float32), (initial_rank[:,0], initial_rank[:,1])), shape=(n, n))
+        A = A + sp.eye(n, dtype=np.float32, format='csr')
+
+        A = A @ A.T
+        A = A.tolil()
+        A.setdiag(0)
+        B = self.imgids.view(-1,1) == self.imgids.view(1,-1)
+        B = np.ones(1, dtype=np.float32)-B.numpy()
+        A = sp.csr_matrix(A.toarray()*B)
+
+        _, group = sp.csgraph.connected_components(csgraph=A, directed=True, connection='weak', return_labels=True)
+        del features, initial_rank
+        pseudo_labels = group
+
+        num_ids = len(set(pseudo_labels)) - (1 if -1 in pseudo_labels else 0)
+        total_time = time.time() - start_time
+        self.logger.info('End clustering, total time: %3f', total_time)
+        # generate new dataset and calculate cluster centers
+        labels = []
+        outliers = 0
+        for id in pseudo_labels:
+            if id != -1:
+                labels.append(id)
+            else:
+                labels.append(num_ids + outliers)
+                outliers += 1
+        labels = torch.Tensor(labels).long().cuda()
+        self.model.module.reid_head.loss_evaluator.labels = labels
 
         num_ids = len(set(pseudo_labels)) - (1 if -1 in pseudo_labels else 0)
         total_time = time.time() - start_time
@@ -248,6 +294,7 @@ class EpochBasedRunner(BaseRunner):
             rank, world_size = get_dist_info()
             if rank == 0:
                 self.conduct_cluster()
+            torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.labels, 0, async_op=True)
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()
