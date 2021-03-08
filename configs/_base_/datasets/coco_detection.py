@@ -1,7 +1,9 @@
-# dataset_type = 'SysuDataset'
-# data_root = 'data/sysu/'
-dataset_type = 'PrwDataset'
-data_root = 'data/prw/'
+dataset_type = 'SysuDataset'
+data_root = 'data/sysu/'
+# dataset_type = 'PrwDataset'
+# data_root = 'data/prw/'
+# dataset_type = 'MotDataset'
+# data_root = 'data/mot/'
 img_size = (1333, 800)  # (1333, 800), (1500, 900)
 batch_size = 9
 with_reid = True
@@ -51,12 +53,20 @@ test_pipeline = [
 data = dict(
     samples_per_gpu=batch_size,
     workers_per_gpu=batch_size,
-    train=dict(
+    train=[
+    dict(
         with_reid=with_reid,
         type=dataset_type,
         ann_file=data_root + 'annotations/train.json',
         img_prefix=data_root + 'images/',
         pipeline=train_pipeline),
+    dict(
+        with_reid=with_reid,
+        type='MotDataset',
+        ann_file='data/mot/' + 'annotations/train.json',
+        img_prefix='data/mot/' + 'images/',
+        pipeline=train_pipeline),
+    ],
     query=dict(
         with_reid=with_reid,
         type=dataset_type,

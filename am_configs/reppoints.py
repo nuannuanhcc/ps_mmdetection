@@ -4,10 +4,12 @@ _base_ = [
 ]
 norm_cfg = dict(type='GN', num_groups=32, requires_grad=True)
 with_reid = True
-# dataset_type = 'SysuDataset'
-# data_root = 'data/sysu/'
-dataset_type = 'PrwDataset'
-data_root = 'data/prw/'
+dataset_type = 'SysuDataset'
+data_root = 'data/sysu/'
+# dataset_type = 'PrwDataset'
+# data_root = 'data/prw/'
+# dataset_type = 'MotDataset'
+# data_root = 'data/mot/'
 
 model = dict(
     type='RepPointsDetector',
@@ -91,5 +93,5 @@ lr_config = dict(
     warmup='linear',
     warmup_iters=500,
     warmup_ratio=1.0 / 3,
-    step=[32, 44])
-total_epochs = 48
+    step=[40, 55])
+total_epochs = 60

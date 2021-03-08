@@ -105,7 +105,7 @@ class EpochBasedRunner(BaseRunner):
             self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids if i is not None]).squeeze()
             self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
             del data_loader, features
-        torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.features, 0, async_op=True)
+        # torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.features, 0, async_op=True)
 
     def conduct_cluster(self):
         # self.logger.info('Start clustering')
@@ -294,7 +294,7 @@ class EpochBasedRunner(BaseRunner):
             rank, world_size = get_dist_info()
             if rank == 0:
                 self.conduct_cluster()
-            torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.labels, 0, async_op=True)
+            # torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.labels, 0, async_op=True)
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()
