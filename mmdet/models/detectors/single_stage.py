@@ -96,7 +96,7 @@ class SingleStageDetector(BaseDetector):
             dict[str, Tensor]: A dictionary of loss components.
         """
         img_crop = img_metas.pop()
-        x_crop = self.extract_feat(img_crop)[1]
+        x_crop = self.extract_feat(img_crop)[0]
         x = self.extract_feat(img)
         cls_labels = [i[:, 0] for i in gt_labels] if self.train_cfg.with_reid else gt_labels
         losses = self.bbox_head.forward_train(x, img_metas, gt_bboxes,
@@ -124,7 +124,7 @@ class SingleStageDetector(BaseDetector):
         """
         # backbone
         if 'img_crop' in img_metas[0].keys():  # extract feats for clustering
-            img_crop = self.extract_feat(img_metas[0]['img_crop'])[1]
+            img_crop = self.extract_feat(img_metas[0]['img_crop'])[0]
         else:
             img_crop = None
         x = self.extract_feat(img)
@@ -136,7 +136,7 @@ class SingleStageDetector(BaseDetector):
             #
             test_box = bbox2roi([gt_bbox_list])[:, 1:].clone()
             test_img_crop = self.stn(img, test_box).cuda()
-            test_img_feat = self.extract_feat(test_img_crop)[1]
+            test_img_feat = self.extract_feat(test_img_crop)[0]
             #
             gt_bbox_feats = self.reid_head(gt_bbox_feats, test_img_feat)
 
@@ -165,7 +165,7 @@ class SingleStageDetector(BaseDetector):
         if img_crop is None:  # testing
             test_box = bbox2roi([pre_bbox_list])[:, 1:].clone()
             test_img_crop = self.stn(img, test_box).cuda()
-            test_img_feat = self.extract_feat(test_img_crop)[1]
+            test_img_feat = self.extract_feat(test_img_crop)[0]
         else:  # cluster
             test_img_feat = img_crop
         #

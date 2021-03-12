@@ -21,6 +21,7 @@ class REIDModule(torch.nn.Module):
         feats = F.normalize(x, dim=-1)
 
         if x_crop is not None:
+            x_crop = torch.nn.functional.interpolate(x_crop, size=None, scale_factor=1 / 2, mode='nearest', align_corners=None)
             x_crop = x_crop.view(x_crop.size(0), -1)
             x_crop = self.fc(x_crop)
             feats_crop = F.normalize(x_crop, dim=-1)
