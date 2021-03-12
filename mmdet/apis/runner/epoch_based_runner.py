@@ -88,7 +88,7 @@ class EpochBasedRunner(BaseRunner):
                 img = data['img'][0].clone()
                 box = data['gt_bboxes'].copy()[0][0]
                 box = torch.round(box).int().tolist()
-                img_crop = [torch.nn.functional.interpolate(img[:, :, b[1]:b[3], b[0]:b[2]], size=(7 * 16, 7 * 16)) for b in box]
+                img_crop = [torch.nn.functional.interpolate(img[:, :, b[1]:b[3], b[0]:b[2]], size=(12* 16, 4 * 16)) for b in box]
                 img_crop = torch.cat(img_crop).cuda()
                 data['img_metas'][0]._data[0][0]['img_crop'] = img_crop
 
@@ -105,7 +105,7 @@ class EpochBasedRunner(BaseRunner):
             self.imgids = torch.cat([i.unsqueeze(-1) for i in imgids if i is not None]).squeeze()
             self.model.module.reid_head.loss_evaluator.features = torch.nn.functional.normalize(features, dim=1).cuda()
             del data_loader, features
-        torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.features, 0, async_op=True)
+        # torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.features, 0, async_op=True)
 
     def conduct_cluster(self):
         # self.logger.info('Start clustering')
@@ -290,11 +290,7 @@ class EpochBasedRunner(BaseRunner):
         self.extract_feats(cluster_loader)
 
         while self.epoch < self._max_epochs:
-            from mmcv.runner import get_dist_info
-            rank, world_size = get_dist_info()
-            if rank == 0:
-                self.conduct_cluster()
-            torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.labels, 0, async_op=True)
+            # torch.distributed.broadcast(self.model.module.reid_head.loss_evaluator.labels, 0, async_op=True)
             for i, flow in enumerate(workflow):
                 mode, epochs = flow
                 if isinstance(mode, str):  # self.train()
@@ -312,6 +308,11 @@ class EpochBasedRunner(BaseRunner):
                     if mode == 'train' and self.epoch >= self._max_epochs:
                         break
                     epoch_runner(data_loaders[i], **kwargs)
+
+                from mmcv.runner import get_dist_info
+                rank, world_size = get_dist_info()
+                if rank == 0:
+                    self.conduct_cluster()
 
         time.sleep(1)  # wait for some hooks like loggers to finish
         self.call_hook('after_run')

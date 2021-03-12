@@ -370,7 +370,7 @@ class BaseDetector(nn.Module, metaclass=ABCMeta):
         theta[:, 5] = (box_norm[:, 3] + box_norm[:, 1]) / 2
         theta = theta.view(-1, 2, 3)
         # new_size is changable
-        new_size = torch.Size([*x.shape[:2], 7 * 16, 7 * 16])
+        new_size = torch.Size([*x.shape[:2], 12 * 16, 4 * 16])
         grid = F.affine_grid(theta, new_size)
         x = F.grid_sample(x, grid)
         return x

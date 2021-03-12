@@ -13,7 +13,7 @@ class REIDModule(torch.nn.Module):
         super(REIDModule, self).__init__()
         self.cfg = cfg
         self.loss_evaluator = make_reid_loss_evaluator(cfg)
-        self.fc = nn.Linear(256 * 7 * 7, 2048)
+        self.fc = nn.Linear(256 * 12 * 4, 2048)
 
     def forward(self, x, x_crop=None, gt_labels=None):
         x = x.view(x.size(0), -1)
