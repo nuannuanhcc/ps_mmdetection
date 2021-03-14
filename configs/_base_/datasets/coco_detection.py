@@ -60,6 +60,12 @@ data = dict(
         pipeline=train_pipeline),
         dict(
             with_reid=with_reid,
+            type='PrwDataset',
+            ann_file='data/prw/' + 'annotations/train.json',
+            img_prefix='data/prw/' + 'images/',
+            pipeline=train_pipeline),
+        dict(
+            with_reid=with_reid,
             type='InriaDataset',
             ann_file='data/inria/' + 'annotations/train.json',
             img_prefix='data/inria/' + 'images/',

@@ -4,5 +4,5 @@
 #python3 ./tools/train.py ./am_configs/atss.py --work-dir './work_dirs/atss'
 
 #CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 PORT=295000 ./tools/dist_train.sh ./am_configs/reppoints.py 8 --work-dir './work_dirs/reppoints'
-CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=295001 ./tools/dist_train.sh ./am_configs/reppoints.py 4 --work-dir './work_dirs/3.15_finch_4x_1_fpn1_12x4x16_sysu_inria'
-#CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=295002 ./tools/dist_train.sh ./am_configs/reppoints.py 4 --work-dir './work_dirs/3.15_finch_4x_1_fpn1_12x4x16_sysu_inria_1500'
+CUDA_VISIBLE_DEVICES=0,1,2,3 PORT=295001 ./tools/dist_train.sh ./am_configs/reppoints.py 4 --work-dir './work_dirs/3.15_finch_4x_1_fpn1_12x4x16_sysu_prw_inria'
+#CUDA_VISIBLE_DEVICES=4,5,6,7 PORT=295002 ./tools/dist_train.sh ./am_configs/reppoints.py 4 --work-dir './work_dirs/3.15_finch_4x_1_fpn1_12x4x16_sysu_prw_inria_1500'

@@ -289,7 +289,7 @@ class HybridMemory(nn.Module):
         self.use_circle_loss = use_circle_loss
 
         if self.cfg.dataset_type == 'SysuDataset':
-            num_labeled = 55260+1826  # 15080/55260
+            num_labeled = 55260+18048+1826  # 15080/55260
             num_unlabeled = 8192
         elif self.cfg.dataset_type == 'PrwDataset':
             num_labeled = 18048  # 14906/18048

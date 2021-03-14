@@ -56,10 +56,10 @@ class InriaDataset(CocoDataset):
                     else:
                         # gt_labels.append([self.cat2label[ann['category_id']], ann['pid'], ann['image_id'], ann['id'],
                         #                   ann['id_labeled']])
-                        ann_pid = ann['pid'] if ann['pid'] == -1 else ann['pid'] + 5532
-                        ann_image_id = ann['image_id'] + 11206
-                        ann_id = ann['id'] + 55260
-                        ann_id_labeled = ann['id_labeled'] if ann['id_labeled'] == -1 else ann['id_labeled'] + 15080
+                        ann_pid = ann['pid'] if ann['pid'] == -1 else ann['pid'] + 5532 + 932
+                        ann_image_id = ann['image_id'] + 11206 + 5704
+                        ann_id = ann['id'] + 55260 + 18048
+                        ann_id_labeled = ann['id_labeled'] if ann['id_labeled'] == -1 else ann['id_labeled'] + 15080 + 14907
                         gt_labels.append(
                             [self.cat2label[ann['category_id']], ann_pid, ann_image_id, ann_id, ann_id_labeled])
                 else:
