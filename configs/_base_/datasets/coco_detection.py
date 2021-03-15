@@ -66,10 +66,16 @@ data = dict(
             pipeline=train_pipeline),
         dict(
             with_reid=with_reid,
-            type='InriaDataset',
-            ann_file='data/inria/' + 'annotations/train.json',
-            img_prefix='data/inria/' + 'images/',
+            type='MotDataset',
+            ann_file='data/mot/' + 'annotations/train_50.json',
+            img_prefix='data/mot/' + 'images/',
             pipeline=train_pipeline),
+        # dict(
+        #     with_reid=with_reid,
+        #     type='InriaDataset',
+        #     ann_file='data/inria/' + 'annotations/train.json',
+        #     img_prefix='data/inria/' + 'images/',
+        #     pipeline=train_pipeline),
     ],
     query=dict(
         with_reid=with_reid,

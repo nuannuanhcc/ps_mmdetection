@@ -14,6 +14,7 @@ from .xml_style import XMLDataset
 from .sysu import SysuDataset
 from .prw import PrwDataset
 from .inria import InriaDataset
+from .mot import MotDataset
 
 __all__ = [
     'CustomDataset', 'XMLDataset', 'CocoDataset', 'DeepFashionDataset',
@@ -21,5 +22,5 @@ __all__ = [
     'LVISV1Dataset', 'GroupSampler', 'DistributedGroupSampler',
     'DistributedSampler', 'build_dataloader', 'ConcatDataset', 'RepeatDataset',
     'ClassBalancedDataset', 'WIDERFaceDataset', 'DATASETS', 'PIPELINES',
-    'build_dataset', 'replace_ImageToTensor', 'SysuDataset', 'PrwDataset','InriaDataset'
+    'build_dataset', 'replace_ImageToTensor', 'SysuDataset', 'PrwDataset','InriaDataset','MotDataset'
 ]
